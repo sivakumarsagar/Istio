@@ -1,0 +1,505 @@
+
+eksctl utils describe-stacks --region=us-east-1 --cluster=Istio
+
+
+https://kubernetes.github.io/ingress-nginx/user-guide/default-backend/
+
+
+eksctl create cluster --name Istio3 --version 1.16 --region us-east-1 --nodegroup-name workers --node-type t3.medium --nodes 2 --nodes-min 2 --nodes-max 2 --ssh-access --ssh-public-key ~/.ssh/id_rsa.pub --managed
+
+3)Install Istio CLI
+--> curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.6.7 sh -
+--> echo "export PATH=$PWD/bin:$PATH" >> ~/.bash_profile
+-->. !$
+ 
+4) istioctl profile dump demo > profile_demo_config.yaml
+ -->  istioctl manifest generate --set profile=demo --set values.gateways.istio-ingressgateway.sds.enabled=true > generated-manifest-demo.yaml
+ -->  istioctl install --set profile=demo
+ -->  kubectl label namespace default istio-injection=enabled
+ -->  istioctl dashboard grafana(Plus-->import-->3119(load)-->kubernetes cluster prometheus, Plus-->import-->10856(load)-->k8 cluster detail dashboard, Plus-->import-->8685(load)-->cluster summary,315-->cluster monitoring)
+ -->  istioctl dashboard kiali
+
+5) kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/redis-master-controller.json
+ --> kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/redis-master-service.json
+ --> kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/redis-slave-controller.json
+ --> kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/redis-slave-service.json
+ --> kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/guestbook-controller.json
+ --> kubectl apply -f https://raw.githubusercontent.com/kubernetes/examples/master/guestbook-go/guestbook-service.json
+
+6) kubectl create namespace nginx-ingress-controller 
+ --> helm repo add stable https://charts.helm.sh/stable
+ --> helm repo update
+ --> helm install nginx-ingress-controller stable/nginx-ingress -n nginx-ingress-controller
+7) ingress.yaml --> kubectl apply -f ingress.yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: gb
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    name: guestbook
+    namespace: default
+spec:
+  rules:
+    - http:
+        paths:
+          - backend:
+              serviceName: guestbook
+              servicePort: 3000
+            path: /
+
+8) kubectl get svc nginx-ingress-controller-controller -n nginx-ingress-controller | awk '{ print $4 }' | tail -1
+
+9)kubectl delete svc guestbook
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: guestbook
+  name: guestbook
+  namespace: default
+spec:
+  ports:
+  - port: 3000
+    protocol: TCP
+    targetPort: http-server
+  selector:
+    app: guestbook
+  sessionAffinity: None
+  type: NodePort
+
+10)Istio Gateway
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: guestbook
+  namespace: default
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+
+
+
+Istio Virtual Service
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: guestbook-virtualservice
+  namespace: default
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - guestbook
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        port:
+          number: 3000
+        host: guestbook.default.svc.cluster.local
+  
+
+-->curl -v $(kubectl get service istio-ingressgateway -n istio-system | awk '{ print $4 }' | tail -1)
+kubectl -n istio-system get service istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+--> helm uninstall nginx-ingress-controller -n nginx-ingress-controller
+-->kubectl get all -n nginx-ingress-controller
+-->kubectl delete ingress ingressname
+11) bookinfo
+
+https://raw.githubusercontent.com/istio/istio/release-1.11/samples/bookinfo/platform/kube/bookinfo.yaml
+https://raw.githubusercontent.com/istio/istio/release-1.11/samples/bookinfo/networking/bookinfo-gateway.yaml
+https://raw.githubusercontent.com/istio/istio/release-1.11/samples/bookinfo/networking/destination-rule-all.yaml(not now)
+
+kubectl get pods --show-labels --selector app=reviews
+kubectl get deploy --show-labels --selector app=reviews
+destination Rule versioning
+canary Virtual Service:
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: reviews
+spec:
+  hosts:
+  - reviews
+  gateways:
+  - bookinfo-gateway
+  - mesh
+  http:
+  - route:
+    - destination:
+        host: reviews
+        subset: v1
+      weight: 10
+    - destination:
+        host: reviews
+        subset: v2
+      weight: 10
+    - destination:
+        host: reviews
+        subset: v3
+      weight: 80
+
+
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: reviews
+spec:
+  hosts:
+  - reviews
+  gateways:
+  - bookinfo-gateway
+  - mesh
+  http:
+  - match:
+    - uri:
+        regex: '^/productpage/v2'
+      ignoreUriCase: true
+    route:
+    - destination:
+        host: reviews
+        subset: v2
+    - queryParams:
+        test-v2:
+          exact: "true"
+    route:
+    - destination:
+        host: reviews
+        subset: v2
+    - headers:
+        end-user:
+          exact: log-in-as-this-user
+    route:
+    - destination:
+        host: reviews
+        subset: v1
+  - route:
+    - destination:
+        host: reviews
+        subset: v1
+      weight: 10
+    - destination:
+        host: reviews
+        subset: v2
+      weight: 10
+    - destination:
+        host: reviews
+        subset: v1
+      weight: 80
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: reviews
+spec:
+  hosts:
+  - ratings
+  gateways:
+  - bookinfo-gateway
+  - mesh
+  http:
+  - timeout: 1s
+    - match:
+      - headers:
+          end-user:
+            exact: log-in-as-this-user
+      route:
+      - destination:
+          host: ratings
+          subset: v1
+      fault:
+        delay:
+          percentage:
+            value: 100
+          fixedDelay: 10s
+      route:
+      - destination:
+          host: ratings
+          subset: v1
+    - route:
+      - destination:
+          host: ratings
+          subset: v1
+
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: ratings
+spec:
+  hosts:
+  - ratings:
+  http:
+  - retries:
+      attempts:
+      perTryTimeout: 3s
+      retryOn: 1xx,gateway-error,reset,connection-failure,refused-stream,retriable-4xx
+    match:
+      - headers:
+          end-user:
+            exact: log-in-as-this-user
+      route:
+      - destination:
+          host: ratings
+          subset: v1
+      fault:
+        delay:
+          percentage:
+            value: 100
+          fixedDelay: 10s
+      route:
+      - destination:
+          host: ratings
+          subset: v1
+    - route:
+      - destination:
+          host: ratings
+          subset: v1
+
+
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: reviews
+spec:
+  hosts:
+  - reviews
+  gateways:
+  - bookinfo-gateway
+  - mesh
+  http:
+  - mirror:
+     host: reviews
+     subset: v1
+    mirror_percent: 100.0
+    route:
+    - destination:
+        host: reviews
+        subset: v3
+      weight: 100
+
+Destination Rule for custom Load Balancing:
+1) ROUND_ROBIN 2)LEAST_CON 3) RANDOM
+
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: reviews
+spec:
+  hosts: reviews
+  trafficPolicy:
+    loadBalancer:
+      loadBalancer:
+        simple: ROUND_ROBIN
+    subsets:
+    - name: v1
+      labels:
+        version: v1
+
+Sticky Session:
+
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: reviews
+spec:
+  host: reviews
+  trafficPolicy:
+    loadBalancer:
+        consistentHash:
+            httpCookie:
+                name: user
+                ttl: 1800s
+
+
+Connection Pool size in Destination rule:
+and circuit breaker
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: reviews
+spec:
+  host: reviews
+  trafficPolicy:
+      connectionPool:
+        http:
+          http2MaxRequests: 1
+          maxRequestsPerConnection: 1
+        tcp:
+          maxConnection: 2
+          connectTimeout: 30ms
+          tcpkeepalive:
+            time: 7200s
+            interval: 25s
+
+
+Security in transist/ ssl certificate:
+
+openssl req \
+        -x509 \
+        -newkey rsa:2048 \
+        -keyout istio-elb.amazonaws.com.key.pem \
+        -out istio-elb.amazonaws.com.cert.pem \
+        -days 365 \
+        -nodes \
+        -subj '/CN=*.elb.amazonaws.com'
+
+openssl x509 -in istio-elb.amazonaws.com.cert.pem -text -noout
+
+kubectl create -n istio-system \
+    secret tls gateway-cert-aws-elb-dns \
+    --key=istio-elb.amazonaws.com.key.pem \
+    --cert=istio-elb.amazonaws.com.cert.pem 
+
+
+
+openssl req \
+        -x509 \
+        -newkey rsa:2048 \
+        -keyout istio-elb.sni.com.key.pem \
+        -out istio-elb.sni.com.cert.pem \
+        -days 365 \
+        -nodes \
+        -subj '/CN=*.elb.amazonaws.com'
+
+kubectl create -n istio-system \
+    secret tls gateway-cert-sni-dns \
+    --key=istio-elb.sni.com.key.pem \
+    --cert=istio-elb.sni.com.cert.pem 
+
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: bookinfo-gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*.elb.amazonaws.com"
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+    - "*.elb.amazonaws.com"
+    tls:
+      mode: SIMPLE
+      credentialName: gateway-cert-aws-elb-dns
+  - port:
+      number: 443
+      name: https-sni
+      protocol: HTTPS
+    hosts:
+    - "*.sni.com"
+    tls:
+      mode: SIMPLE
+      credentialName: gateway-cert-sni-dns
+
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  labels:
+    run: httpbin
+  name: httpbin
+spec:
+  containers:
+  - image: docker.io/kennethreitz/httpbin
+    name: httpbin
+    resources: {}
+  dnsPolicy: ClusterFirst
+  restartPolicy: Never
+status: {}
+
+
+kubectl expose pod httpbin --port 80
+
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: httpbin
+spec:
+  hosts:
+  - "*.elb.amazonaws.com"
+  - httpbin
+  - "*.sni.com"
+  gateways:
+  - bookinfo-gateway
+  http:
+  - match:
+    - uri:
+        exact: /
+      ignoreUriCase: true
+    - uri:
+        exact: /ip
+      ignoreUriCase: true
+    - uri:
+        exact: /headers
+      ignoreUriCase: true
+    route:
+    - destination:
+        host: httpbin.default.svc.cluster.local
+        port:
+          number: 80
+
+-->export INGRESS_HOST=$(kubectl get service istio-ingressgateway -n istio-system | awk '{ print $4 }' | tail -1)
+-->SECURE_INGRESS_PORT=443
+-->host $(echo $INGRESS_HOST)
+-->curl -v\
+     --resolve "test.sni.com:$SECURE_INGRESS_PORT:$(host $(echo $INGRESS_HOST) | tail -1 | awk '{ print $4 }')" \
+     "https://test.sni.com:$SECURE_INGRESS_PORT/headers" -k
+
+
+-->kubectl run curl \
+     --restart Never \
+     --image curlimages/curl \
+     --dry-run -o yaml \
+     -- /bin/sh -c "sleep infinity" > pod_curl.yaml
+-->kubectl apply -f pod_curl.yaml
+--> kubectl exec -it curl sh
+     --> curl httpbin/headers
+
+
+-->kubectl create ns non-istio
+-->kubectl run curl \
+     --restart Never \
+     --image curlimages/curl \
+     -n non-istio \
+     --dry-run -o yaml \
+     -- /bin/sh -c "sleep infinity" > pod_curl_non_istio.yaml
+-->kubectl apply -f pod_curl_non_istio.yaml
+--> kubectl exec -it curl sh -n non-istio
+      -->curl httpbin.default/headers
+
+
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
