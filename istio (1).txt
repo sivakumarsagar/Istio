@@ -14,7 +14,7 @@ eksctl utils describe-stacks --region=us-east-1 --cluster=Istio
 https://kubernetes.github.io/ingress-nginx/user-guide/default-backend/
 
 
-eksctl create cluster --name Istio3 --version 1.16 --region us-east-1 --nodegroup-name workers --node-type t3.medium --nodes 2 --nodes-min 2 --nodes-max 2 --ssh-access --ssh-public-key ~/.ssh/id_rsa.pub --managed
+eksctl create cluster --name Istio3 --version 1.24 --region us-east-1 --nodegroup-name workers --node-type t3.medium --nodes 2 --nodes-min 2 --nodes-max 2 --ssh-access --ssh-public-key ~/.ssh/id_rsa.pub --managed
 
 3)Install Istio CLI
 --> curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.6.7 sh -
